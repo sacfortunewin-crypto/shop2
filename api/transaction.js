@@ -25,6 +25,11 @@ function utmifyLogMessage(utmify) {
   );
 }
 
+function pagouErrorDetails(body) {
+  if (!body || typeof body !== "object") return null;
+  return body.errors || body.data || body.details || null;
+}
+
 module.exports = async function handler(req, res) {
   if (!requireMethod(req, res, "POST")) return;
 
@@ -43,10 +48,20 @@ module.exports = async function handler(req, res) {
   const body = response.body || {};
 
   if (response.status < 200 || response.status >= 300) {
-    sendJson(res, response.status > 0 ? response.status : 502, {
-      message: errorMessage(body),
+    const message = errorMessage(body);
+    console.log("[checkout:pagou-error]", {
+      method: payload.method || null,
       pagouStatus: response.status,
       requestId: body.requestId || null,
+      message,
+      details: pagouErrorDetails(body),
+    });
+
+    sendJson(res, response.status > 0 ? response.status : 502, {
+      message,
+      pagouStatus: response.status,
+      requestId: body.requestId || null,
+      pagouError: pagouErrorDetails(body),
     });
     return;
   }

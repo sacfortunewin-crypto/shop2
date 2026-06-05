@@ -148,6 +148,20 @@ function normalizeTracking(input) {
   };
 }
 
+function cardTokenValue(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number") return String(value).trim();
+
+  if (typeof value === "object") {
+    for (const key of ["token", "id", "value", "card_token", "cardToken"]) {
+      const token = cardTokenValue(value[key]);
+      if (token) return token;
+    }
+  }
+
+  return "";
+}
+
 function validateCheckoutPayload(input, res) {
   const customer = input.customer;
   const address = input.address;
@@ -265,11 +279,16 @@ function buildTransactionPayload(input, req, res) {
   if (notifyUrl.startsWith("https://")) payload.notify_url = notifyUrl;
 
   if (method === "credit_card") {
-    const token = String(input.cardToken || input.token || "").trim();
+    const token = [input.cardToken, input.token, input.card].map(cardTokenValue).find(Boolean) || "";
     const installments = Math.max(1, Math.min(3, Number(input.installments || 1)));
 
     if (!token) {
       sendJson(res, 422, { message: "Token do cartao nao informado." });
+      return null;
+    }
+
+    if (!/^(pgct_|pgpm_)/.test(token)) {
+      sendJson(res, 422, { message: "Token do cartao invalido. Recarregue a pagina e tente novamente." });
       return null;
     }
 
@@ -318,9 +337,42 @@ async function pagouApiRequest(method, apiPath, payload) {
   return { status: response.status, body };
 }
 
+function validationDetails(body) {
+  if (!body || typeof body !== "object") return [];
+
+  const details = [];
+  if (Array.isArray(body.errors)) {
+    for (const error of body.errors) {
+      if (!error) continue;
+      if (typeof error === "string") {
+        details.push(error);
+        continue;
+      }
+
+      const field = error.field || error.path || error.param || error.property;
+      const message = error.message || error.detail || error.error || error.code;
+      if (field && message) details.push(`${field}: ${message}`);
+      else if (message) details.push(String(message));
+    }
+  }
+
+  for (const key of ["data", "details"]) {
+    const value = body[key];
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+
+    for (const [field, message] of Object.entries(value)) {
+      if (typeof message === "string" || typeof message === "number") {
+        details.push(`${field}: ${message}`);
+      }
+    }
+  }
+
+  return details;
+}
+
 function errorMessage(body) {
   if (!body || typeof body !== "object") return "Falha ao processar pagamento.";
-  return String(
+  const message = String(
     body.message ||
       body.detail ||
       body.title ||
@@ -328,6 +380,8 @@ function errorMessage(body) {
       (Array.isArray(body.errors) && body.errors[0] && (body.errors[0].message || body.errors[0])) ||
       "Falha ao processar pagamento."
   );
+  const details = validationDetails(body);
+  return details.length ? `${message}: ${details.join("; ")}` : message;
 }
 
 function parseMetadata(transaction) {
