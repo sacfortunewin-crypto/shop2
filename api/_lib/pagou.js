@@ -137,9 +137,10 @@ function selectedAmountCents(input) {
 
 function normalizeTracking(input) {
   const tracking = input && typeof input === "object" ? input : {};
+  const sck = tracking.sck || tracking.xcod || tracking.subid || tracking.sub_id || null;
   return {
     src: tracking.src || null,
-    sck: tracking.sck || null,
+    sck,
     utm_source: tracking.utm_source || null,
     utm_campaign: tracking.utm_campaign || null,
     utm_medium: tracking.utm_medium || null,

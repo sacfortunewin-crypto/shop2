@@ -78,13 +78,24 @@ module.exports = async function handler(req, res) {
     status: data.status || "pending",
     metadata: data.metadata || payload.metadata,
   };
-  const utmify = await notifyUtmify(orderFromTransaction(transaction, req), transaction);
+  const order = orderFromTransaction(transaction, req);
+  const tracking = order.tracking || {};
+  const utmify = await notifyUtmify(order, transaction);
   console.log("[checkout:utmify-pending]", {
     transactionId,
     externalRef: transaction.external_ref || null,
     method: transaction.method || null,
     pagouStatus: transaction.status || null,
     amount: transaction.amount || null,
+    tracking: {
+      src: tracking.src || null,
+      sck: tracking.sck ? "present" : null,
+      utm_source: tracking.utm_source || null,
+      utm_campaign: tracking.utm_campaign || null,
+      utm_medium: tracking.utm_medium || null,
+      utm_content: tracking.utm_content || null,
+      utm_term: tracking.utm_term || null,
+    },
     utmifySent: Boolean(utmify && utmify.sent),
     utmifyStatus: utmify ? utmify.status : null,
     utmifyMessage: utmifyLogMessage(utmify),
