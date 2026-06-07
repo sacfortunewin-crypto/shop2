@@ -26,11 +26,17 @@
       try { sessionStorage.setItem("utmify_tracking", JSON.stringify(data)); } catch (e) {}
       try { localStorage.setItem("utmify_tracking", JSON.stringify(data)); } catch (e) {}
     }
+    function cleanTrackingValue(key, value) {
+      if (!value) return "";
+      var clean = String(value).split("::")[0].trim();
+      if (key === "utm_source") clean = clean.replace(/jLj[0-9a-z_-]{12,}$/i, "").trim();
+      return clean;
+    }
     window.shop2CollectTracking = function () {
       var params = new URLSearchParams(window.location.search);
       var data = Object.assign({}, readStored("localStorage"), readStored("sessionStorage"));
       trackingKeys.forEach(function (key) {
-        var value = params.get(key);
+        var value = cleanTrackingValue(key, params.get(key));
         if (value) data[key] = value;
       });
       if (!data.sck && data.xcod) data.sck = data.xcod;

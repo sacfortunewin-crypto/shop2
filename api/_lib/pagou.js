@@ -135,17 +135,31 @@ function selectedAmountCents(input) {
   return requested === expressTotal ? expressTotal : CHECKOUT_PRODUCT_PRICE_CENTS;
 }
 
+function cleanTrackingText(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const clean = text.split("::")[0].trim();
+  return clean || null;
+}
+
+function cleanUtmSource(value) {
+  const text = cleanTrackingText(value);
+  if (!text) return null;
+  const clean = text.replace(/jLj[0-9a-z_-]{12,}$/i, "").trim();
+  return clean || text;
+}
+
 function normalizeTracking(input) {
   const tracking = input && typeof input === "object" ? input : {};
-  const sck = tracking.sck || tracking.xcod || tracking.subid || tracking.sub_id || null;
+  const sck = cleanTrackingText(tracking.sck || tracking.xcod || tracking.subid || tracking.sub_id);
   return {
-    src: tracking.src || null,
+    src: cleanTrackingText(tracking.src),
     sck,
-    utm_source: tracking.utm_source || null,
-    utm_campaign: tracking.utm_campaign || null,
-    utm_medium: tracking.utm_medium || null,
-    utm_content: tracking.utm_content || null,
-    utm_term: tracking.utm_term || null,
+    utm_source: cleanUtmSource(tracking.utm_source),
+    utm_campaign: cleanTrackingText(tracking.utm_campaign),
+    utm_medium: cleanTrackingText(tracking.utm_medium),
+    utm_content: cleanTrackingText(tracking.utm_content),
+    utm_term: cleanTrackingText(tracking.utm_term),
   };
 }
 
