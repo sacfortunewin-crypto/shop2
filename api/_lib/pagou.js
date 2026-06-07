@@ -124,7 +124,7 @@ function webhookUrl(req) {
   if (!host || /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host)) return "";
 
   const proto = req.headers["x-forwarded-proto"] || "https";
-  const secret = env("PAGOU_WEBHOOK_SECRET", env("UTMIFY_WEBHOOK_SECRET"));
+  const secret = env("PAGOU_WEBHOOK_SECRET");
   const suffix = secret ? `?secret=${encodeURIComponent(secret)}` : "";
   return `${proto}://${host}/checkout/api/webhook.php${suffix}`;
 }

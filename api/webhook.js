@@ -50,7 +50,7 @@ function utmifyLogMessage(utmify) {
 module.exports = async function handler(req, res) {
   if (!requireMethod(req, res, "POST")) return;
 
-  const configuredSecret = env("PAGOU_WEBHOOK_SECRET", env("UTMIFY_WEBHOOK_SECRET"));
+  const configuredSecret = env("PAGOU_WEBHOOK_SECRET");
   const url = new URL(req.url || "/api/webhook", "https://checkout.local");
   const providedSecret =
     url.searchParams.get("secret") ||
