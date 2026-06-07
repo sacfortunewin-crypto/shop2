@@ -414,6 +414,12 @@ function normalizeTransactionFromWebhook(body) {
     body.type ||
     (topLevelEvent.includes(".") ? topLevelEvent : "") ||
     "";
+  transaction.external_ref =
+    transaction.external_ref ||
+    transaction.externalRef ||
+    transaction.correlation_id ||
+    transaction.correlationId ||
+    "";
   return transaction;
 }
 
@@ -434,7 +440,14 @@ function orderFromTransaction(transaction, req) {
 
   return {
     transactionId: String(transaction.id || checkoutOrder.transactionId || ""),
-    externalRef: String(transaction.external_ref || transaction.externalRef || checkoutOrder.externalRef || ""),
+    externalRef: String(
+      transaction.external_ref ||
+        transaction.externalRef ||
+        transaction.correlation_id ||
+        transaction.correlationId ||
+        checkoutOrder.externalRef ||
+        ""
+    ),
     method: transaction.method || checkoutOrder.method || "pix",
     amountCents: Number(transaction.amount || checkoutOrder.amountCents || CHECKOUT_PRODUCT_PRICE_CENTS),
     createdAt: transaction.created_at || checkoutOrder.createdAt || new Date().toISOString(),
@@ -508,7 +521,7 @@ async function notifyUtmify(order, transaction) {
   const tracking = normalizeTracking(order.tracking || {});
 
   const payload = {
-    orderId: String(order.transactionId || transaction.id || order.externalRef || ""),
+    orderId: String(order.externalRef || order.transactionId || transaction.id || ""),
     platform: "ShopeeCheckout",
     paymentMethod: (transaction.method || order.method || "pix") === "credit_card" ? "credit_card" : "pix",
     status,
