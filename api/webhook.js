@@ -85,6 +85,18 @@ async function enrichedTransaction(transaction) {
     }
 
     const data = body.data && typeof body.data === "object" ? body.data : body;
+    console.log("[checkout:webhook-enrich-success]", {
+      transactionId: transaction.id || null,
+      pagouHttpStatus: response.status,
+      requestId: body.requestId || null,
+      returnedStatus: data.status || null,
+      returnedMethod: data.method || null,
+      returnedAmount: data.amount || null,
+      metadataReturned: Boolean(data.metadata),
+      externalRefReturned: data.external_ref || data.externalRef || data.correlation_id || null,
+      bodyKeys: data && typeof data === "object" ? Object.keys(data).slice(0, 16) : [],
+    });
+
     return {
       ...transaction,
       ...data,
@@ -123,6 +135,14 @@ module.exports = async function handler(req, res) {
     req.headers["x-webhook-secret"] ||
     "";
 
+  console.log("[checkout:webhook-auth-check]", {
+    hasConfiguredSecret: Boolean(configuredSecret),
+    hasProvidedSecret: Boolean(providedSecret),
+    providedViaQuery: Boolean(url.searchParams.get("secret")),
+    providedViaHeader: Boolean(req.headers["x-pagou-webhook-secret"] || req.headers["x-webhook-secret"]),
+    path: req.url || null,
+  });
+
   if (configuredSecret && providedSecret !== configuredSecret) {
     console.log("[checkout:webhook-auth-failed]", {
       hasConfiguredSecret: true,
@@ -140,6 +160,19 @@ module.exports = async function handler(req, res) {
     sendJson(res, 400, { received: false, message: "JSON invalido." });
     return;
   }
+
+  console.log("[checkout:webhook-body]", {
+    topLevelKeys: body && typeof body === "object" ? Object.keys(body).slice(0, 16) : [],
+    event: body && body.event ? body.event : null,
+    eventType: body && body.event_type ? body.event_type : null,
+    type: body && body.type ? body.type : null,
+    hasData: Boolean(body && body.data),
+    hasTransaction: Boolean(body && body.transaction),
+    dataKeys:
+      body && body.data && typeof body.data === "object"
+        ? Object.keys(body.data.object && typeof body.data.object === "object" ? body.data.object : body.data).slice(0, 16)
+        : [],
+  });
 
   const transaction = normalizeTransactionFromWebhook(body);
   const eventType = transaction.event_type || "";
@@ -172,9 +205,35 @@ module.exports = async function handler(req, res) {
     let finalTransaction = transaction;
     let order = mergeOrderWithSnapshot(orderFromTransaction(finalTransaction, req), snapshot);
 
+    console.log("[checkout:webhook-order-initial]", {
+      eventId,
+      eventType,
+      transactionId: order.transactionId || transaction.id || null,
+      orderId: order.externalRef || order.transactionId || null,
+      method: order.method || null,
+      pagouStatus: finalTransaction.status || transaction.status || null,
+      amount: finalTransaction.amount || order.amountCents || null,
+      trackingFound: hasTrackingValues(order.tracking),
+      snapshotFound: Boolean(snapshot),
+      tracking: trackingLog(order.tracking || {}),
+    });
+
     if (!hasTrackingValues(order.tracking)) {
       finalTransaction = await enrichedTransaction(transaction);
       order = mergeOrderWithSnapshot(orderFromTransaction(finalTransaction, req), snapshot);
+
+      console.log("[checkout:webhook-order-enriched]", {
+        eventId,
+        eventType,
+        transactionId: order.transactionId || transaction.id || null,
+        orderId: order.externalRef || order.transactionId || null,
+        method: order.method || null,
+        pagouStatus: finalTransaction.status || transaction.status || null,
+        amount: finalTransaction.amount || order.amountCents || null,
+        trackingFound: hasTrackingValues(order.tracking),
+        snapshotFound: Boolean(snapshot),
+        tracking: trackingLog(order.tracking || {}),
+      });
     }
 
     const tracking = order.tracking || {};
@@ -255,7 +314,16 @@ module.exports = async function handler(req, res) {
 
     rememberOrderSnapshot(order);
   } else {
-    console.log("[checkout:webhook-ignored]", { eventId, eventType, status });
+    console.log("[checkout:webhook-ignored]", {
+      eventId,
+      eventType,
+      status,
+      transactionId: transaction.id || null,
+      externalRef: transaction.external_ref || transaction.externalRef || transaction.correlation_id || null,
+      method: transaction.method || null,
+      amount: transaction.amount || null,
+      reason: "non_final_status",
+    });
   }
 
   markEventSeen(eventId);

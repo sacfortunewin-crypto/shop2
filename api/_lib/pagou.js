@@ -169,6 +169,19 @@ function hasTrackingValues(tracking) {
   return Object.values(normalizeTracking(tracking || {})).some(Boolean);
 }
 
+function trackingSummary(tracking) {
+  const normalized = normalizeTracking(tracking || {});
+  return {
+    src: normalized.src || null,
+    sck: normalized.sck ? "present" : null,
+    utm_source: normalized.utm_source || null,
+    utm_campaign: normalized.utm_campaign || null,
+    utm_medium: normalized.utm_medium || null,
+    utm_content: normalized.utm_content || null,
+    utm_term: normalized.utm_term || null,
+  };
+}
+
 function mergeTracking(primary, fallback) {
   const current = normalizeTracking(primary || {});
   const saved = normalizeTracking(fallback || {});
@@ -231,6 +244,74 @@ function trackingFromReferer(req) {
 
 function trackingFromRequest(req) {
   return mergeTracking(trackingFromCookie(req), trackingFromReferer(req));
+}
+
+function refererInfo(req) {
+  const referer = req.headers.referer || req.headers.referrer;
+  if (!referer) {
+    return {
+      present: false,
+      origin: null,
+      pathname: null,
+      hasSearch: false,
+      trackingFound: false,
+      tracking: trackingSummary({}),
+    };
+  }
+
+  try {
+    const url = new URL(String(referer));
+    const tracking = trackingFromSearch(url.searchParams);
+    return {
+      present: true,
+      origin: url.origin || null,
+      pathname: url.pathname || null,
+      hasSearch: Boolean(url.search),
+      trackingFound: hasTrackingValues(tracking),
+      tracking: trackingSummary(tracking),
+    };
+  } catch {
+    return {
+      present: true,
+      origin: null,
+      pathname: null,
+      hasSearch: false,
+      trackingFound: false,
+      tracking: trackingSummary({}),
+    };
+  }
+}
+
+function cookieTrackingInfo(req) {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const tracking = trackingFromCookie(req);
+  return {
+    hasCookieHeader: Boolean(req.headers.cookie),
+    hasUtmifyCookie: Boolean(cookies.utmify_tracking),
+    hasCheckoutCookie: Boolean(cookies.checkout_tracking),
+    trackingFound: hasTrackingValues(tracking),
+    tracking: trackingSummary(tracking),
+  };
+}
+
+function trackingDiagnostics(inputTracking, req) {
+  const bodyTracking = normalizeTracking(inputTracking || {});
+  const cookieInfo = cookieTrackingInfo(req);
+  const refInfo = refererInfo(req);
+  const requestTracking = trackingFromRequest(req);
+  const mergedTracking = mergeTracking(inputTracking, requestTracking);
+
+  return {
+    bodyTrackingFound: hasTrackingValues(bodyTracking),
+    cookieTrackingFound: cookieInfo.trackingFound,
+    refererTrackingFound: refInfo.trackingFound,
+    requestTrackingFound: hasTrackingValues(requestTracking),
+    mergedTrackingFound: hasTrackingValues(mergedTracking),
+    bodyTracking: trackingSummary(bodyTracking),
+    cookie: cookieInfo,
+    referer: refInfo,
+    mergedTracking: trackingSummary(mergedTracking),
+  };
 }
 
 function cardTokenValue(value) {
@@ -654,9 +735,28 @@ function mergeOrderWithSnapshot(order, snapshot) {
   };
 }
 
+function responseMessage(body) {
+  if (!body || typeof body !== "object") return null;
+  const firstError = Array.isArray(body.errors) ? body.errors[0] : null;
+  return (
+    body.message ||
+    body.detail ||
+    body.error ||
+    body.title ||
+    (firstError && (firstError.message || firstError.detail || firstError.error || String(firstError))) ||
+    null
+  );
+}
+
 async function notifyUtmify(order, transaction) {
   const token = env("UTMIFY_API_TOKEN");
-  if (!token) return { sent: false, status: 0, message: "UTMify nao configurado." };
+  if (!token) {
+    console.log("[checkout:utmify-skip]", {
+      reason: "missing_token",
+      orderId: order && (order.externalRef || order.transactionId) ? order.externalRef || order.transactionId : null,
+    });
+    return { sent: false, status: 0, message: "UTMify nao configurado." };
+  }
 
   const pagouStatus = String(transaction.status || "pending");
   const eventType = String(transaction.event_type || "");
@@ -707,6 +807,33 @@ async function notifyUtmify(order, transaction) {
     isTest: checkoutEnvironment() === "sandbox",
   };
 
+  console.log("[checkout:utmify-request]", {
+    orderId: payload.orderId || null,
+    transactionId: transaction.id || order.transactionId || null,
+    paymentMethod: payload.paymentMethod,
+    pagouStatus,
+    eventType: eventType || null,
+    utmifyStatus: status,
+    amountCents,
+    feeCents,
+    userCommissionCents,
+    trackingFound: hasTrackingValues(tracking),
+    tracking: trackingSummary(tracking),
+    customer: {
+      namePresent: Boolean(customer.name),
+      emailPresent: Boolean(customer.email),
+      phonePresent: Boolean(customer.phone),
+      documentPresent: Boolean(customer.document),
+      ipPresent: Boolean(customer.ip),
+    },
+    dates: {
+      createdAt: payload.createdAt || null,
+      approvedDate: payload.approvedDate || null,
+      refundedAt: payload.refundedAt || null,
+    },
+    isTest: payload.isTest,
+  });
+
   let response;
   try {
     response = await fetch("https://api.utmify.com.br/api-credentials/orders", {
@@ -719,6 +846,11 @@ async function notifyUtmify(order, transaction) {
       body: JSON.stringify(payload),
     });
   } catch (error) {
+    console.log("[checkout:utmify-network-error]", {
+      orderId: payload.orderId || null,
+      transactionId: transaction.id || order.transactionId || null,
+      message: error && error.message ? error.message : "Falha de comunicacao com a UTMify.",
+    });
     return {
       sent: false,
       status: 0,
@@ -733,6 +865,15 @@ async function notifyUtmify(order, transaction) {
   } catch {
     body = { raw };
   }
+
+  console.log("[checkout:utmify-response]", {
+    orderId: payload.orderId || null,
+    transactionId: transaction.id || order.transactionId || null,
+    sent: response.status >= 200 && response.status < 300,
+    status: response.status,
+    message: responseMessage(body),
+    bodyKeys: body && typeof body === "object" ? Object.keys(body).slice(0, 12) : [],
+  });
 
   return {
     sent: response.status >= 200 && response.status < 300,
@@ -762,4 +903,6 @@ module.exports = {
   requireMethod,
   sendJson,
   checkoutEnvironment,
+  trackingDiagnostics,
+  trackingSummary,
 };

@@ -42,6 +42,40 @@
     return data;
   }
 
+  function hasTracking(data) {
+    return TRACKING_KEYS.some(function (key) { return !!data[key]; });
+  }
+
+  function sendClientLog(stage, tracking) {
+    try {
+      var storedLocal = readStored(window.localStorage);
+      var storedSession = readStored(window.sessionStorage);
+      var payload = {
+        stage: stage,
+        pathname: window.location.pathname,
+        hasSearch: !!window.location.search,
+        tracking: tracking || {},
+        storage: {
+          localFound: hasTracking(storedLocal),
+          sessionFound: hasTracking(storedSession),
+          cookieFound: document.cookie.indexOf(STORAGE_KEY + "=") !== -1
+        },
+        referrer: document.referrer || null
+      };
+      var body = JSON.stringify(payload);
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/checkout/api/client-log.php", new Blob([body], { type: "application/json" }));
+        return;
+      }
+      fetch("/checkout/api/client-log.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: body,
+        keepalive: true
+      }).catch(function () {});
+    } catch (_) {}
+  }
+
   function decorateLinks() {
     var tracking = collect();
     document.querySelectorAll('a[href]').forEach(function (link) {
@@ -62,8 +96,8 @@
 
   window.collectCheckoutTracking = collect;
   window.shop2CollectTracking = collect;
-  collect();
+  sendClientLog("initial", collect());
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", decorateLinks);
   else decorateLinks();
-  window.setTimeout(collect, 1500);
+  window.setTimeout(function () { sendClientLog("delayed", collect()); }, 1500);
 })();
