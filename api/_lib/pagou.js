@@ -43,6 +43,8 @@ const localEnv = (() => {
 
 const seenEvents = globalThis.__pagouSeenEvents || new Map();
 globalThis.__pagouSeenEvents = seenEvents;
+const orderSnapshots = globalThis.__pagouOrderSnapshots || new Map();
+globalThis.__pagouOrderSnapshots = orderSnapshots;
 
 function env(key, fallback = "") {
   return process.env[key] || localEnv[key] || fallback;
@@ -163,6 +165,74 @@ function normalizeTracking(input) {
   };
 }
 
+function hasTrackingValues(tracking) {
+  return Object.values(normalizeTracking(tracking || {})).some(Boolean);
+}
+
+function mergeTracking(primary, fallback) {
+  const current = normalizeTracking(primary || {});
+  const saved = normalizeTracking(fallback || {});
+  return {
+    src: current.src || saved.src,
+    sck: current.sck || saved.sck,
+    utm_source: current.utm_source || saved.utm_source,
+    utm_campaign: current.utm_campaign || saved.utm_campaign,
+    utm_medium: current.utm_medium || saved.utm_medium,
+    utm_content: current.utm_content || saved.utm_content,
+    utm_term: current.utm_term || saved.utm_term,
+  };
+}
+
+function parseCookieHeader(header) {
+  const cookies = {};
+  String(header || "")
+    .split(";")
+    .forEach((part) => {
+      const index = part.indexOf("=");
+      if (index === -1) return;
+      const key = part.slice(0, index).trim();
+      if (!key) return;
+      cookies[key] = part.slice(index + 1).trim();
+    });
+  return cookies;
+}
+
+function trackingFromSearch(searchParams) {
+  const input = {};
+  for (const key of ["src", "sck", "xcod", "utm_source", "utm_campaign", "utm_medium", "utm_content", "utm_term"]) {
+    const value = searchParams.get(key);
+    if (value) input[key] = value;
+  }
+  return normalizeTracking(input);
+}
+
+function trackingFromCookie(req) {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  const raw = cookies.utmify_tracking || cookies.checkout_tracking;
+  if (!raw) return normalizeTracking({});
+
+  try {
+    return normalizeTracking(JSON.parse(decodeURIComponent(raw)));
+  } catch {
+    return normalizeTracking({});
+  }
+}
+
+function trackingFromReferer(req) {
+  const referer = req.headers.referer || req.headers.referrer;
+  if (!referer) return normalizeTracking({});
+
+  try {
+    return trackingFromSearch(new URL(String(referer)).searchParams);
+  } catch {
+    return normalizeTracking({});
+  }
+}
+
+function trackingFromRequest(req) {
+  return mergeTracking(trackingFromCookie(req), trackingFromReferer(req));
+}
+
 function cardTokenValue(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "string" || typeof value === "number") return String(value).trim();
@@ -226,7 +296,7 @@ function buildTransactionPayload(input, req, res) {
   const address = input.address;
   const amountCents = selectedAmountCents(input);
   const shippingCents = Math.max(0, amountCents - CHECKOUT_PRODUCT_PRICE_CENTS);
-  const tracking = normalizeTracking(input.tracking);
+  const tracking = mergeTracking(input.tracking, trackingFromRequest(req));
   const createdAt = new Date().toISOString();
   const externalRef = `checkout_${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}_${crypto
     .randomBytes(4)
@@ -503,6 +573,10 @@ function cleanupSeenEvents() {
   for (const [key, seenAt] of seenEvents.entries()) {
     if (now - seenAt > 1000 * 60 * 60) seenEvents.delete(key);
   }
+
+  for (const [key, snapshot] of orderSnapshots.entries()) {
+    if (now - Number(snapshot.seenAt || 0) > 1000 * 60 * 60 * 6) orderSnapshots.delete(key);
+  }
 }
 
 function hasSeenEvent(eventId) {
@@ -515,6 +589,69 @@ function markEventSeen(eventId) {
   if (!eventId) return;
   cleanupSeenEvents();
   seenEvents.set(eventId, Date.now());
+}
+
+function snapshotKeys(orderOrTransaction) {
+  if (!orderOrTransaction || typeof orderOrTransaction !== "object") return [];
+
+  const metadata = parseMetadata(orderOrTransaction);
+  const checkoutOrder = metadata.checkoutOrder || {};
+  const keys = [
+    orderOrTransaction.externalRef,
+    orderOrTransaction.external_ref,
+    orderOrTransaction.correlation_id,
+    orderOrTransaction.correlationId,
+    orderOrTransaction.transactionId,
+    orderOrTransaction.id,
+    checkoutOrder.externalRef,
+    checkoutOrder.transactionId,
+  ];
+  return [...new Set(keys.map((key) => String(key || "").trim()).filter(Boolean))];
+}
+
+function rememberOrderSnapshot(order) {
+  if (!order) return;
+  cleanupSeenEvents();
+  const snapshot = {
+    externalRef: order.externalRef || "",
+    transactionId: order.transactionId || "",
+    method: order.method || "",
+    amountCents: order.amountCents || CHECKOUT_PRODUCT_PRICE_CENTS,
+    createdAt: order.createdAt || new Date().toISOString(),
+    customer: order.customer || {},
+    tracking: normalizeTracking(order.tracking || {}),
+    seenAt: Date.now(),
+  };
+
+  for (const key of snapshotKeys(snapshot)) {
+    orderSnapshots.set(key, snapshot);
+  }
+}
+
+function orderSnapshotFromTransaction(transaction) {
+  cleanupSeenEvents();
+  for (const key of snapshotKeys(transaction || {})) {
+    const snapshot = orderSnapshots.get(key);
+    if (snapshot) return snapshot;
+  }
+  return null;
+}
+
+function mergeOrderWithSnapshot(order, snapshot) {
+  if (!snapshot) return order;
+  return {
+    ...order,
+    externalRef: order.externalRef || snapshot.externalRef,
+    transactionId: order.transactionId || snapshot.transactionId,
+    method: order.method || snapshot.method,
+    amountCents: order.amountCents || snapshot.amountCents,
+    createdAt: order.createdAt || snapshot.createdAt,
+    customer: {
+      ...(snapshot.customer || {}),
+      ...(order.customer || {}),
+    },
+    tracking: mergeTracking(order.tracking, snapshot.tracking),
+  };
 }
 
 async function notifyUtmify(order, transaction) {
@@ -612,12 +749,16 @@ module.exports = {
   env,
   errorMessage,
   hasSeenEvent,
+  hasTrackingValues,
   markEventSeen,
+  mergeOrderWithSnapshot,
   normalizeTransactionFromWebhook,
   notifyUtmify,
   orderFromTransaction,
+  orderSnapshotFromTransaction,
   pagouApiRequest,
   readJson,
+  rememberOrderSnapshot,
   requireMethod,
   sendJson,
   checkoutEnvironment,

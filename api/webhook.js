@@ -1,11 +1,16 @@
 const {
   env,
   hasSeenEvent,
+  hasTrackingValues,
   markEventSeen,
+  mergeOrderWithSnapshot,
   normalizeTransactionFromWebhook,
   notifyUtmify,
   orderFromTransaction,
+  orderSnapshotFromTransaction,
+  pagouApiRequest,
   readJson,
+  rememberOrderSnapshot,
   requireMethod,
   sendJson,
 } = require("./_lib/pagou");
@@ -45,6 +50,66 @@ function utmifyLogMessage(utmify) {
     utmify.message ||
     null
   );
+}
+
+function trackingLog(tracking) {
+  return {
+    src: tracking.src || null,
+    sck: tracking.sck ? "present" : null,
+    utm_source: tracking.utm_source || null,
+    utm_campaign: tracking.utm_campaign || null,
+    utm_medium: tracking.utm_medium || null,
+    utm_content: tracking.utm_content || null,
+    utm_term: tracking.utm_term || null,
+  };
+}
+
+function metadataValue(primary, fallback) {
+  if (typeof primary === "string" && primary.trim()) return primary;
+  if (primary && typeof primary === "object" && Object.keys(primary).length) return primary;
+  return fallback;
+}
+
+async function enrichedTransaction(transaction) {
+  if (!transaction || !transaction.id) return transaction;
+
+  try {
+    const response = await pagouApiRequest("GET", `/v2/transactions/${encodeURIComponent(transaction.id)}`);
+    const body = response.body || {};
+    if (response.status < 200 || response.status >= 300) {
+      console.log("[checkout:webhook-enrich-failed]", {
+        transactionId: transaction.id || null,
+        pagouStatus: response.status,
+      });
+      return transaction;
+    }
+
+    const data = body.data && typeof body.data === "object" ? body.data : body;
+    return {
+      ...transaction,
+      ...data,
+      id: data.id || transaction.id,
+      external_ref:
+        data.external_ref ||
+        data.externalRef ||
+        data.correlation_id ||
+        transaction.external_ref ||
+        transaction.externalRef ||
+        transaction.correlation_id ||
+        "",
+      event_type: transaction.event_type || data.event_type || "",
+      status: data.status || transaction.status,
+      method: data.method || transaction.method,
+      amount: data.amount || transaction.amount,
+      metadata: metadataValue(data.metadata, transaction.metadata),
+    };
+  } catch (error) {
+    console.log("[checkout:webhook-enrich-error]", {
+      transactionId: transaction.id || null,
+      message: error && error.message ? error.message : "Falha ao consultar Pagou.",
+    });
+    return transaction;
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -103,26 +168,77 @@ module.exports = async function handler(req, res) {
   let utmify = null;
   const status = String(transaction.status || "");
   if (NOTIFIABLE_EVENTS.has(eventType) || NOTIFIABLE_STATUSES.has(status)) {
-    const order = orderFromTransaction(transaction, req);
+    const snapshot = orderSnapshotFromTransaction(transaction);
+    let finalTransaction = transaction;
+    let order = mergeOrderWithSnapshot(orderFromTransaction(finalTransaction, req), snapshot);
+
+    if (!hasTrackingValues(order.tracking)) {
+      finalTransaction = await enrichedTransaction(transaction);
+      order = mergeOrderWithSnapshot(orderFromTransaction(finalTransaction, req), snapshot);
+    }
+
     const tracking = order.tracking || {};
-    utmify = await notifyUtmify(order, transaction);
+    const trackingFound = hasTrackingValues(tracking);
+    console.log("[checkout:utmify-webhook-start]", {
+      eventId,
+      eventType,
+      transactionId: order.transactionId || transaction.id || null,
+      orderId: order.externalRef || order.transactionId || null,
+      method: order.method || null,
+      pagouStatus: finalTransaction.status || transaction.status || null,
+      amount: finalTransaction.amount || order.amountCents || null,
+      trackingFound,
+      snapshotFound: Boolean(snapshot),
+      tracking: trackingLog(tracking),
+    });
+
+    if (!trackingFound && ["paid", "captured", "authorized"].includes(String(finalTransaction.status || ""))) {
+      console.log("[checkout:utmify-webhook-missing-tracking]", {
+        eventId,
+        eventType,
+        transactionId: order.transactionId || transaction.id || null,
+        orderId: order.externalRef || order.transactionId || null,
+        method: order.method || null,
+        pagouStatus: finalTransaction.status || transaction.status || null,
+        amount: finalTransaction.amount || order.amountCents || null,
+      });
+      markEventSeen(eventId);
+      sendJson(res, 200, {
+        received: true,
+        eventId,
+        eventType,
+        skippedUtmify: true,
+        reason: "missing_tracking",
+      });
+      return;
+    }
+
+    try {
+      utmify = await notifyUtmify(order, finalTransaction);
+    } catch (error) {
+      console.log("[checkout:utmify-webhook-error]", {
+        eventId,
+        transactionId: order.transactionId || transaction.id || null,
+        message: error && error.message ? error.message : "Falha ao notificar UTMify.",
+      });
+      sendJson(res, 502, {
+        received: false,
+        message: "Falha ao notificar UTMify.",
+      });
+      return;
+    }
+
     console.log("[checkout:utmify-webhook]", {
       eventId,
       eventType,
       transactionId: order.transactionId || null,
       orderId: order.externalRef || order.transactionId || null,
       method: order.method || null,
-      pagouStatus: transaction.status || null,
-      amount: transaction.amount || order.amountCents || null,
-      tracking: {
-        src: tracking.src || null,
-        sck: tracking.sck ? "present" : null,
-        utm_source: tracking.utm_source || null,
-        utm_campaign: tracking.utm_campaign || null,
-        utm_medium: tracking.utm_medium || null,
-        utm_content: tracking.utm_content || null,
-        utm_term: tracking.utm_term || null,
-      },
+      pagouStatus: finalTransaction.status || transaction.status || null,
+      amount: finalTransaction.amount || order.amountCents || null,
+      trackingFound,
+      snapshotFound: Boolean(snapshot),
+      tracking: trackingLog(tracking),
       utmifySent: Boolean(utmify && utmify.sent),
       utmifyStatus: utmify ? utmify.status : null,
       utmifyMessage: utmifyLogMessage(utmify),
@@ -136,6 +252,8 @@ module.exports = async function handler(req, res) {
       });
       return;
     }
+
+    rememberOrderSnapshot(order);
   } else {
     console.log("[checkout:webhook-ignored]", { eventId, eventType, status });
   }

@@ -14,6 +14,10 @@
   function store(data) {
     try { window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
+    try {
+      var secure = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = STORAGE_KEY + "=" + encodeURIComponent(JSON.stringify(data)) + "; Max-Age=2592000; Path=/; SameSite=Lax" + secure;
+    } catch (_) {}
   }
 
   function clean(key, value) {

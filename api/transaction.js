@@ -1,10 +1,12 @@
 const {
   buildTransactionPayload,
   errorMessage,
+  hasTrackingValues,
   notifyUtmify,
   orderFromTransaction,
   pagouApiRequest,
   readJson,
+  rememberOrderSnapshot,
   requireMethod,
   sendJson,
 } = require("./_lib/pagou");
@@ -79,6 +81,7 @@ module.exports = async function handler(req, res) {
     metadata: data.metadata || payload.metadata,
   };
   const order = orderFromTransaction(transaction, req);
+  rememberOrderSnapshot(order);
   const tracking = order.tracking || {};
   const utmify = await notifyUtmify(order, transaction);
   console.log("[checkout:utmify-pending]", {
@@ -87,6 +90,7 @@ module.exports = async function handler(req, res) {
     method: transaction.method || null,
     pagouStatus: transaction.status || null,
     amount: transaction.amount || null,
+    trackingFound: hasTrackingValues(tracking),
     tracking: {
       src: tracking.src || null,
       sck: tracking.sck ? "present" : null,
