@@ -118,9 +118,56 @@ function hostFromRequest(req) {
   return Array.isArray(host) ? host[0] : String(host || "");
 }
 
-function webhookUrl(req) {
+function base64UrlEncode(value) {
+  return Buffer.from(value).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlDecode(value) {
+  const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  return Buffer.from(padded, "base64").toString("utf8");
+}
+
+function trackingToken(tracking) {
+  const normalized = normalizeTracking(tracking || {});
+  if (!hasTrackingValues(normalized)) return "";
+  return base64UrlEncode(JSON.stringify(normalized));
+}
+
+function trackingFromToken(value) {
+  if (!value) return normalizeTracking({});
+  try {
+    return normalizeTracking(JSON.parse(base64UrlDecode(value)));
+  } catch {
+    return normalizeTracking({});
+  }
+}
+
+function appendTrackingToWebhookUrl(rawUrl, tracking) {
+  const token = trackingToken(tracking);
+  if (!rawUrl || !token) return rawUrl || "";
+
+  try {
+    const url = new URL(rawUrl);
+    url.searchParams.set("t", token);
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+function trackingFromWebhookUrl(req) {
+  try {
+    const url = new URL(req.url || "/api/webhook", "https://checkout.local");
+    return trackingFromToken(url.searchParams.get("t"));
+  } catch {
+    return normalizeTracking({});
+  }
+}
+
+function webhookUrl(req, tracking) {
   const configured = env("PAGOU_NOTIFY_URL");
-  if (configured) return configured;
+  if (configured) return appendTrackingToWebhookUrl(configured, tracking);
 
   const host = hostFromRequest(req);
   if (!host || /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(host)) return "";
@@ -128,7 +175,7 @@ function webhookUrl(req) {
   const proto = req.headers["x-forwarded-proto"] || "https";
   const secret = env("PAGOU_WEBHOOK_SECRET");
   const suffix = secret ? `?secret=${encodeURIComponent(secret)}` : "";
-  return `${proto}://${host}/checkout/api/webhook.php${suffix}`;
+  return appendTrackingToWebhookUrl(`${proto}://${host}/checkout/api/webhook.php${suffix}`, tracking);
 }
 
 function selectedAmountCents(input) {
@@ -441,7 +488,7 @@ function buildTransactionPayload(input, req, res) {
   const ip = clientIp(req);
   if (ip) payload.ip_address = ip;
 
-  const notifyUrl = webhookUrl(req);
+  const notifyUrl = webhookUrl(req, tracking);
   if (notifyUrl.startsWith("https://")) payload.notify_url = notifyUrl;
 
   if (method === "credit_card") {
@@ -906,5 +953,6 @@ module.exports = {
   checkoutEnvironment,
   trackingDiagnostics,
   trackingFromRequest,
+  trackingFromWebhookUrl,
   trackingSummary,
 };

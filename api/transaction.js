@@ -75,6 +75,7 @@ module.exports = async function handler(req, res) {
     amount: payload.amount || null,
     currency: payload.currency || null,
     notifyUrlConfigured: Boolean(payload.notify_url),
+    notifyTrackingTokenConfigured: Boolean(payload.notify_url && /[?&]t=/.test(payload.notify_url)),
     tokenPresent: Boolean(payload.token),
     installments: payload.installments || null,
     metadataPresent: Boolean(payload.metadata),

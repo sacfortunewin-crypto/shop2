@@ -4,6 +4,7 @@ const {
   hasTrackingValues,
   markEventSeen,
   mergeOrderWithSnapshot,
+  mergeTracking,
   normalizeTransactionFromWebhook,
   notifyUtmify,
   orderFromTransaction,
@@ -13,6 +14,7 @@ const {
   rememberOrderSnapshot,
   requireMethod,
   sendJson,
+  trackingFromWebhookUrl,
 } = require("./_lib/pagou");
 
 const NOTIFIABLE_EVENTS = new Set([
@@ -140,14 +142,15 @@ module.exports = async function handler(req, res) {
     hasProvidedSecret: Boolean(providedSecret),
     providedViaQuery: Boolean(url.searchParams.get("secret")),
     providedViaHeader: Boolean(req.headers["x-pagou-webhook-secret"] || req.headers["x-webhook-secret"]),
-    path: req.url || null,
+    path: url.pathname || null,
+    trackingTokenPresent: Boolean(url.searchParams.get("t")),
   });
 
   if (configuredSecret && providedSecret !== configuredSecret) {
     console.log("[checkout:webhook-auth-failed]", {
       hasConfiguredSecret: true,
       hasProvidedSecret: Boolean(providedSecret),
-      path: req.url || null,
+      path: url.pathname || null,
     });
     sendJson(res, 401, { received: false, message: "Webhook nao autorizado." });
     return;
@@ -202,8 +205,13 @@ module.exports = async function handler(req, res) {
   const status = String(transaction.status || "");
   if (NOTIFIABLE_EVENTS.has(eventType) || NOTIFIABLE_STATUSES.has(status)) {
     const snapshot = orderSnapshotFromTransaction(transaction);
+    const webhookTracking = trackingFromWebhookUrl(req);
     let finalTransaction = transaction;
     let order = mergeOrderWithSnapshot(orderFromTransaction(finalTransaction, req), snapshot);
+    order = {
+      ...order,
+      tracking: mergeTracking(order.tracking, webhookTracking),
+    };
 
     console.log("[checkout:webhook-order-initial]", {
       eventId,
@@ -215,12 +223,17 @@ module.exports = async function handler(req, res) {
       amount: finalTransaction.amount || order.amountCents || null,
       trackingFound: hasTrackingValues(order.tracking),
       snapshotFound: Boolean(snapshot),
+      webhookTrackingFound: hasTrackingValues(webhookTracking),
       tracking: trackingLog(order.tracking || {}),
     });
 
     if (!hasTrackingValues(order.tracking)) {
       finalTransaction = await enrichedTransaction(transaction);
       order = mergeOrderWithSnapshot(orderFromTransaction(finalTransaction, req), snapshot);
+      order = {
+        ...order,
+        tracking: mergeTracking(order.tracking, webhookTracking),
+      };
 
       console.log("[checkout:webhook-order-enriched]", {
         eventId,
@@ -232,6 +245,7 @@ module.exports = async function handler(req, res) {
         amount: finalTransaction.amount || order.amountCents || null,
         trackingFound: hasTrackingValues(order.tracking),
         snapshotFound: Boolean(snapshot),
+        webhookTrackingFound: hasTrackingValues(webhookTracking),
         tracking: trackingLog(order.tracking || {}),
       });
     }
@@ -248,6 +262,7 @@ module.exports = async function handler(req, res) {
       amount: finalTransaction.amount || order.amountCents || null,
       trackingFound,
       snapshotFound: Boolean(snapshot),
+      webhookTrackingFound: hasTrackingValues(webhookTracking),
       tracking: trackingLog(tracking),
     });
 
