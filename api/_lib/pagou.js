@@ -892,6 +892,7 @@ module.exports = {
   hasSeenEvent,
   hasTrackingValues,
   markEventSeen,
+  mergeTracking,
   mergeOrderWithSnapshot,
   normalizeTransactionFromWebhook,
   notifyUtmify,
@@ -904,5 +905,6 @@ module.exports = {
   sendJson,
   checkoutEnvironment,
   trackingDiagnostics,
+  trackingFromRequest,
   trackingSummary,
 };

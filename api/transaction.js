@@ -165,6 +165,7 @@ module.exports = async function handler(req, res) {
 
     sendJson(res, 200, {
       transactionId,
+      externalRef: transaction.external_ref || null,
       status: data.status || null,
       method: data.method || "pix",
       amount: data.amount || payload.amount,
@@ -186,6 +187,7 @@ module.exports = async function handler(req, res) {
     data,
     ...data,
     transactionId,
+    externalRef: transaction.external_ref || null,
     requestId: body.requestId || null,
     utmify,
     transaction: data,
