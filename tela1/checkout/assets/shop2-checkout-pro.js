@@ -5,6 +5,13 @@
   var refs = {};
   var stepLabels = ["Dados", "Entrega", "Pagamento"];
 
+  function updateVisibleBrandName() {
+    var footerText = document.querySelector("footer p");
+    if (footerText && footerText.textContent.indexOf("ShopPay") !== -1) {
+      footerText.textContent = footerText.textContent.replace("ShopPay", "ShopeePay");
+    }
+  }
+
   function digits(value) {
     return String(value || "").replace(/\D+/g, "");
   }
@@ -278,6 +285,7 @@
 
     ensureActions();
     wireFieldValidation();
+    updateVisibleBrandName();
     setStep(1, false);
   }
 
