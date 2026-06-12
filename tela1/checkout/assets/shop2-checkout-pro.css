@@ -628,7 +628,7 @@ body.shop2-wizard-ready main > section:nth-of-type(2) .mt-2\.5.grid > div[data-s
 }
 
 body.shop2-wizard-ready .shop2-step-panel {
-  animation: shop2StepIn .22s ease both;
+  animation: shop2StepIn .22s ease;
 }
 
 body.shop2-wizard-ready[data-checkout-step="1"] .shop2-address-panel,
@@ -723,8 +723,111 @@ body.shop2-wizard-ready[data-checkout-step="3"] .shop2-trust-section {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
+}
+
+/* PIX payment modal */
+.shop2-payment-section:has(.fixed.inset-0.z-50 textarea[readonly]) {
+  animation: none !important;
+  transform: none !important;
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 1000 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow-y: auto !important;
+  padding: 16px !important;
+  background: rgba(16, 24, 40, .72) !important;
+  backdrop-filter: blur(3px);
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) > .w-full.max-w-md {
+  width: min(100%, 360px) !important;
+  max-height: calc(100dvh - 32px) !important;
+  overflow-y: auto !important;
+  padding: 18px !important;
+  border: 1px solid #e4eaf1;
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: 0 30px 80px -28px rgba(15, 23, 42, .8) !important;
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) h3 {
+  color: var(--checkout-ink) !important;
+  font-size: 16px !important;
+  font-weight: 850 !important;
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) h3 + button {
+  display: flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e3e9f1;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #667085 !important;
+  font-size: 22px !important;
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) > .w-full.max-w-md > div:nth-child(3) {
+  width: fit-content !important;
+  margin-top: 14px !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  padding: 10px !important;
+  border: 1px solid #edf1f6;
+  border-radius: 12px !important;
+  background: #fff !important;
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) > .w-full.max-w-md > div:nth-child(3) > img,
+body .fixed.inset-0.z-50:has(textarea[readonly]) > .w-full.max-w-md > div:nth-child(3) > svg {
+  width: min(46vw, 176px) !important;
+  height: auto !important;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) textarea {
+  width: 100% !important;
+  height: 62px !important;
+  min-height: 62px !important;
+  max-height: 62px !important;
+  margin-top: 6px !important;
+  padding: 10px 12px !important;
+  overflow: hidden !important;
+  border-color: #d8e1eb !important;
+  border-radius: 10px !important;
+  background: #f8fafc !important;
+  color: #344054 !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) textarea + button {
+  height: 48px !important;
+  margin-top: 10px !important;
+  border-radius: 10px !important;
+  background: var(--checkout-orange) !important;
+  color: #fff !important;
+  font-size: 13px !important;
+  font-weight: 850 !important;
+  box-shadow: 0 16px 28px -22px rgba(238, 77, 45, .95);
+}
+
+body .fixed.inset-0.z-50:has(textarea[readonly]) textarea + button + p {
+  margin-top: 10px !important;
+  overflow-wrap: anywhere;
+  color: #667085 !important;
+  font-size: 10px !important;
+  line-height: 1.45 !important;
 }
 
 @media (min-width: 900px) {
