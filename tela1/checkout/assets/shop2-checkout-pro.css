@@ -334,6 +334,27 @@ main textarea,
   box-shadow: inset 0 1px 0 rgba(15, 23, 42, .02);
 }
 
+#pagou-card-element {
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  padding: 12px !important;
+}
+
+#pagou-card-element iframe {
+  display: block !important;
+  width: 100% !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+}
+
+.shop2-payment-section .overflow-hidden > .mt-4.space-y-3.rounded-md.bg-card {
+  border: 1px solid var(--checkout-border) !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: var(--checkout-shadow-soft) !important;
+}
+
 main input:hover,
 main select:hover,
 main textarea:hover,

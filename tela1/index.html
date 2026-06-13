@@ -66,6 +66,64 @@
   document.head.appendChild(a);
 </script>
 
+<style>
+  .shop2-checkout-loader {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, .58);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity .18s ease, visibility .18s ease;
+  }
+
+  .shop2-checkout-loader.is-visible {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .shop2-checkout-loader__panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .shop2-checkout-loader__dots {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .shop2-checkout-loader__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ee4d2d;
+    animation: shop2-checkout-dot .72s ease-in-out infinite;
+  }
+
+  .shop2-checkout-loader__dot:nth-child(2) {
+    animation-delay: .12s;
+  }
+
+  .shop2-checkout-loader__dot:nth-child(3) {
+    animation-delay: .24s;
+  }
+
+  @keyframes shop2-checkout-dot {
+    0%, 60%, 100% {
+      transform: translateY(0);
+    }
+
+    30% {
+      transform: translateY(-8px);
+    }
+  }
+</style>
+
 
 	<meta charset="UTF-8">
 	<title>Moedor ângular – Cupons Premiados</title>
@@ -2091,7 +2149,53 @@
   });
 </script>
 
-	
+	<div class="shop2-checkout-loader" id="shop2-checkout-loader" aria-hidden="true">
+		<div class="shop2-checkout-loader__panel" role="status" aria-label="Abrindo checkout">
+			<div class="shop2-checkout-loader__dots" aria-hidden="true">
+				<span class="shop2-checkout-loader__dot"></span>
+				<span class="shop2-checkout-loader__dot"></span>
+				<span class="shop2-checkout-loader__dot"></span>
+			</div>
+		</div>
+	</div>
+	<script>
+		(function () {
+			var buyButton = document.getElementById("clickbotao");
+			var loader = document.getElementById("shop2-checkout-loader");
+			var loading = false;
 
+			if (!buyButton || !loader) return;
 
+			function resetLoader() {
+				loading = false;
+				loader.classList.remove("is-visible");
+				loader.setAttribute("aria-hidden", "true");
+				document.body.style.overflow = "";
+			}
+
+			window.addEventListener("pageshow", resetLoader);
+
+			buyButton.addEventListener("click", function (event) {
+				if (
+					event.button !== 0 ||
+					event.metaKey ||
+					event.ctrlKey ||
+					event.shiftKey ||
+					event.altKey
+				) return;
+
+				event.preventDefault();
+				if (loading) return;
+
+				loading = true;
+				loader.classList.add("is-visible");
+				loader.setAttribute("aria-hidden", "false");
+				document.body.style.overflow = "hidden";
+
+				setTimeout(function () {
+					window.location.assign(buyButton.href);
+				}, 1000);
+			});
+		})();
+	</script>
 </body></html>
